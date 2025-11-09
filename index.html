@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flappy Bird Game</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(to bottom, #87CEEB 0%, #E0F6FF 100%);
+            font-family: Arial, sans-serif;
+        }
+        #gameContainer {
+            position: relative;
+            text-align: center;
+        }
+        canvas {
+            border: 3px solid #333;
+            background: linear-gradient(to bottom, #87CEEB 0%, #E0F6FF 70%, #90EE90 100%);
+            display: block;
+            margin: 0 auto;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        #score {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 48px;
+            font-weight: bold;
+            color: white;
+            text-shadow: 3px 3px 0px #000;
+            z-index: 10;
+        }
+        #instructions {
+            margin-top: 20px;
+            font-size: 18px;
+            color: #333;
+            background: rgba(255,255,255,0.9);
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        #gameOver {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.85);
+            color: white;
+            padding: 30px 50px;
+            border-radius: 15px;
+            font-size: 24px;
+            display: none;
+            text-align: center;
+            z-index: 100;
+        }
+        #gameOver button {
+            margin-top: 20px;
+            padding: 12px 30px;
+            font-size: 18px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        #gameOver button:hover {
+            background: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <div id="score">0</div>
+        <div id="gameOver">
+            <h2>খেলা হবে!?</h2>
+            <p>Score: <span id="finalScore">0</span></p>
+            <button onclick="restartGame()">আসো খেলবো</button>
+        </div>
+        <canvas id="gameCanvas" width="400" height="600"></canvas>
+        <div id="instructions">
+            <strong>জয় বাংলা</strong><br>
+            শেখ হাসিনার সালাম নিন
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreElement = document.getElementById('score');
+        const gameOverElement = document.getElementById('gameOver');
+        const finalScoreElement = document.getElementById('finalScore');
+
+        // Game variables
+        let gameRunning = false;
+        let gameStarted = false;
+        let score = 0;
+        let frames = 0;
+
+        // Bird properties
+        const bird = {
+            x: 80,
+            y: canvas.height / 2,
+            width: 40,
+            height: 40,
+            velocity: 0,
+            gravity: 0.15,
+            jump: -4
+        };
+
+        // Pipe properties
+        const pipes = [];
+        const pipeWidth = 40;
+        const pipeGap = 160;
+        const pipeSpeed = 2;
+        let pipeInterval = 150;
+
+        // Image loading
+        const birdImg = new Image();
+        const pipeImages = [];
+        let imagesLoaded = 0;
+        let totalImages = 0;
+
+        // Audio setup
+        const bgMusic = new Audio();
+        const jumpSound = new Audio();
+        const collisionSound = new Audio();
+
+        // Background music - Replace with your music URL
+        bgMusic.src = 'background.mp3';
+        bgMusic.loop = true;
+        bgMusic.volume = 0.3;
+
+        // Jump sound - Replace with your jump sound URL
+        // jumpSound.src = 'https://freesound.org/data/previews/415/415209_5121236-lq.mp3';
+        // jumpSound.volume = 0.5;
+
+        // Collision sound - Replace with your collision sound URL
+        collisionSound.src = 'collition.mp3';
+        collisionSound.volume = 0.6;
+
+        // Bird image URL - Replace with your bird image
+        birdImg.src = 'bird.png';
+        
+        // Array of different pipe image URLs - Replace with your pipe images
+        const pipeImageURLs = [
+            '1.png',
+            '2.png',
+            '3.png', // Blue pipe
+            '4.png', // Yellow pipe
+            '5.png', // Purple pipe
+        ];
+
+        totalImages = 1 + pipeImageURLs.length;
+
+        birdImg.onload = () => {
+            imagesLoaded++;
+            checkImagesLoaded();
+        };
+
+        birdImg.onerror = () => {
+            console.log('Bird image failed to load, using default');
+            imagesLoaded++;
+            checkImagesLoaded();
+        };
+
+        // Load pipe images
+        pipeImageURLs.forEach((url, index) => {
+            const img = new Image();
+            img.src = url;
+            img.onload = () => {
+                imagesLoaded++;
+                checkImagesLoaded();
+            };
+            img.onerror = () => {
+                console.log(`Pipe image ${index} failed to load`);
+                imagesLoaded++;
+                checkImagesLoaded();
+            };
+            pipeImages.push(img);
+        });
+
+        function checkImagesLoaded() {
+            if (imagesLoaded === totalImages) {
+                draw();
+            }
+        }
+
+        // Draw bird using image
+        function drawBird() {
+            if (birdImg.complete && birdImg.naturalWidth > 0) {
+                ctx.drawImage(birdImg, bird.x, bird.y, bird.width, bird.height);
+            } else {
+                // Fallback to colored circle if image fails
+                ctx.fillStyle = '#FFD700';
+                ctx.beginPath();
+                ctx.arc(bird.x + bird.width/2, bird.y + bird.height/2, bird.width/2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // Draw pipe with image
+        function drawPipe(pipe) {
+            const img = pipe.image;
+            
+            if (img.complete && img.naturalWidth > 0) {
+                // Draw top pipe (flipped upside down)
+                ctx.save();
+                ctx.translate(pipe.x + pipeWidth/2, pipe.top);
+                ctx.rotate(Math.PI);
+                ctx.drawImage(img, -pipeWidth/2, 0, pipeWidth, pipe.top);
+                ctx.restore();
+                
+                // Draw bottom pipe
+                ctx.drawImage(img, pipe.x, pipe.bottom, pipeWidth, canvas.height - pipe.bottom);
+            } else {
+                // Fallback to colored rectangles if image fails
+                ctx.fillStyle = '#228B22';
+                ctx.fillRect(pipe.x, 0, pipeWidth, pipe.top);
+                ctx.fillRect(pipe.x, pipe.bottom, pipeWidth, canvas.height - pipe.bottom);
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(pipe.x, 0, pipeWidth, pipe.top);
+                ctx.strokeRect(pipe.x, pipe.bottom, pipeWidth, canvas.height - pipe.bottom);
+            }
+        }
+
+        // Create new pipe with random image
+        function createPipe() {
+            const minTop = 50;
+            const maxTop = canvas.height - pipeGap - 50;
+            const top = Math.random() * (maxTop - minTop) + minTop;
+            const randomImage = pipeImages[Math.floor(Math.random() * pipeImages.length)];
+            
+            pipes.push({
+                x: canvas.width,
+                top: top,
+                bottom: top + pipeGap,
+                image: randomImage,
+                passed: false
+            });
+        }
+
+        // Update game state
+        function update() {
+            if (!gameRunning) return;
+
+            frames++;
+
+            // Update bird
+            bird.velocity += bird.gravity;
+            bird.y += bird.velocity;
+
+            // Create pipes
+            if (frames % pipeInterval === 0) {
+                createPipe();
+            }
+
+            // Update pipes
+            for (let i = pipes.length - 1; i >= 0; i--) {
+                pipes[i].x -= pipeSpeed;
+
+                // Check collision
+                if (
+                    bird.x + bird.width > pipes[i].x &&
+                    bird.x < pipes[i].x + pipeWidth &&
+                    (bird.y < pipes[i].top || bird.y + bird.height > pipes[i].bottom)
+                ) {
+                    endGame();
+                }
+
+                // Update score
+                if (!pipes[i].passed && pipes[i].x + pipeWidth < bird.x) {
+                    pipes[i].passed = true;
+                    score++;
+                    scoreElement.textContent = score;
+                }
+
+                // Remove off-screen pipes
+                if (pipes[i].x + pipeWidth < 0) {
+                    pipes.splice(i, 1);
+                }
+            }
+
+            // Check boundaries
+            if (bird.y + bird.height > canvas.height || bird.y < 0) {
+                endGame();
+            }
+        }
+
+        // Draw everything
+        function draw() {
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw ground
+            ctx.fillStyle = '#90EE90';
+            ctx.fillRect(0, canvas.height - 50, canvas.width, 50);
+
+            // Draw pipes
+            pipes.forEach(pipe => drawPipe(pipe));
+
+            // Draw bird
+            drawBird();
+
+            // Continue animation
+            if (gameRunning) {
+                update();
+                requestAnimationFrame(draw);
+            }
+        }
+
+        // Bird jump
+        function jump() {
+            if (!gameStarted) {
+                gameStarted = true;
+                gameRunning = true;
+                // Start background music when game starts
+                bgMusic.play().catch(e => console.log('Audio play failed:', e));
+                draw();
+            }
+            if (gameRunning) {
+                bird.velocity = bird.jump;
+                // Play jump sound
+                jumpSound.currentTime = 0;
+                jumpSound.play().catch(e => console.log('Jump sound failed:', e));
+            }
+        }
+
+        // End game
+        function endGame() {
+            gameRunning = false;
+            gameStarted = false;
+            finalScoreElement.textContent = score;
+            gameOverElement.style.display = 'block';
+            
+            // Play collision sound and stop background music
+            collisionSound.currentTime = 0;
+            collisionSound.play().catch(e => console.log('Collision sound failed:', e));
+            bgMusic.pause();
+            bgMusic.currentTime = 0;
+        }
+
+        // Restart game
+        function restartGame() {
+            bird.y = canvas.height / 2;
+            bird.velocity = 0;
+            pipes.length = 0;
+            score = 0;
+            frames = 0;
+            scoreElement.textContent = '0';
+            gameOverElement.style.display = 'none';
+            gameRunning = true;
+            gameStarted = true;
+            
+            // Restart background music
+            bgMusic.currentTime = 0;
+            bgMusic.play().catch(e => console.log('Audio play failed:', e));
+            
+            draw();
+        }
+
+        // Event listeners
+        canvas.addEventListener('click', jump);
+        document.addEventListener('keydown', (e) => {
+            e.preventDefault();
+            jump();
+        });
+
+        // Initial draw
+        // Images will trigger draw() when loaded
+    </script>
+</body>
+</html> 
